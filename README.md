@@ -221,6 +221,4 @@ Every path was tested end-to-end with live emails, and every price and spec in t
 
 ## Author
 
-Pavan R V
-
 **R V Pavan**: [LinkedIn](https://www.linkedin.com/in/your-profile)
