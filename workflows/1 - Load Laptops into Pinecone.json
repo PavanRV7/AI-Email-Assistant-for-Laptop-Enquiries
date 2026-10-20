@@ -1,0 +1,270 @@
+{
+  "name": "1 - Load Laptops into Pinecone",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e56781d3-72ce-45ce-a237-f1f356c8217d",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "40622f40-346b-426d-a044-243c5c6e433e",
+              "name": "pinecone_host",
+              "value": "laptops-4bhf0wv.svc.aped-4627-b74a.pinecone.io",
+              "type": "string"
+            },
+            {
+              "id": "2c2ac182-5d5f-405e-9a25-cec850a21ea0",
+              "name": "namespace",
+              "value": "laptops",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        208,
+        0
+      ],
+      "id": "255012e9-de94-44f5-98b0-7630e944f829",
+      "name": "Settings"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/home/node/.n8n-files/laptop.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "b5f1b477-cd3f-4825-ab37-053a73cadd13",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "a2f60cb0-9451-4705-8de3-0539bef045a8",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Turn each laptop row into a Pinecone record\nconst records = $input.all().map(item => {\n  const r = item.json;\n  const fullName = `${r.Company} ${r.Product}`;\n  return {\n    _id: String(r.Laptop_ID),\n    // Pinecone converts this \"text\" field into a vector for searching\n    text: `${fullName}. ${r.Type_Name} laptop, launched in ${r.Launch_Year}. ` +\n          `Price: $${Number(r.Price_USD).toFixed(2)}. Screen: ${r.Inches} inch ${r.Screen_Resolution}. ` +\n          `CPU: ${r.CPU}. RAM: ${r.RAM_GB}GB. Storage: ${r.Memory}. GPU: ${r.GPU}. ` +\n          `OS: ${r.Op_Sys}. Weight: ${r.Weight_kg} kg.`,\n    // Extra fields are saved as metadata (used for filters and the reply email)\n    Full_Name: fullName,\n    Company: r.Company,\n    Product: r.Product,\n    Type_Name: r.Type_Name,\n    Inches: Number(r.Inches),\n    Screen_Resolution: r.Screen_Resolution,\n    CPU: r.CPU,\n    RAM_GB: Number(r.RAM_GB),\n    Memory: r.Memory,\n    GPU: r.GPU,\n    Op_Sys: r.Op_Sys,\n    Weight_kg: Number(r.Weight_kg),\n    Price_USD: Number(r.Price_USD),\n    Launch_Year: Number(r.Launch_Year),\n  };\n});\n\n// 2) Pinecone accepts max 96 records per request, so group them into batches\nconst batches = [];\nfor (let i = 0; i < records.length; i += 96) {\n  const batch = records.slice(i, i + 96);\n  batches.push({ json: {\n    batch_no: batches.length + 1,\n    record_count: batch.length,\n    ndjson: batch.map(rec => JSON.stringify(rec)).join('\\n'), // one record per line\n  }});\n}\nreturn batches;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        0
+      ],
+      "id": "79fe3fe9-76ef-4218-945d-82fa4e1810cb",
+      "name": "Build Pinecone batches"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Settings').first().json.pinecone_host }}/records/namespaces/{{ $('Settings').first().json.namespace }}/upsert",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Pinecone-Api-Version",
+              "value": "2026-07"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/x-ndjson",
+        "body": "={{ $json.ndjson }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1056,
+        0
+      ],
+      "id": "e0e3ff4b-e79e-4329-9475-eb21ef558373",
+      "name": "Upsert to Pinecone",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jKiYw9Mb8bEn4MMu",
+          "name": "Pinecone API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "3e3e6ed8-8d96-4da7-8fb8-76238217ecc1",
+      "name": "Wait",
+      "webhookId": "9041539b-17cd-462e-be33-8b56d7322ced"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Settings').first().json.pinecone_host }}/records/namespaces/{{ $('Settings').first().json.namespace }}/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Pinecone-Api-Version",
+              "value": "2026-07"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"query\": {\n    \"inputs\": { \"text\": \"What is the price of the Lenovo Legion Y520-15IKBN?\" },\n    \"top_k\": 3\n  },\n  \"fields\": [\"Full_Name\", \"CPU\", \"RAM_GB\", \"Memory\", \"Price_USD\", \"Launch_Year\"]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1472,
+        0
+      ],
+      "id": "74151d8a-8af3-4213-80b0-93cf25bba839",
+      "name": "Test search",
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jKiYw9Mb8bEn4MMu",
+          "name": "Pinecone API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Build Pinecone batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Pinecone batches": {
+      "main": [
+        [
+          {
+            "node": "Upsert to Pinecone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert to Pinecone": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Test search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "fa24bd5a-6aae-487f-b96a-0dd80b44f9a2",
+  "meta": {
+    "instanceId": "49cfea709ff4b3580e6be7757f12fdc502a6d96177fbef348dcd2f49f21b792b"
+  },
+  "nodeGroups": [],
+  "id": "8aFwjr5Bod0F4gJN",
+  "tags": []
+}
